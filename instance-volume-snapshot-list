@@ -1,0 +1,64 @@
+import boto3
+import csv
+from botocore.exceptions import ClientError
+
+# Create EC2 client
+ec2 = boto3.client('ec2')
+
+def lambda_handler(event, context):
+    # Get a list of EC2 instances
+    instances = ec2.describe_instances()['Reservations']
+
+    # Create a list to store the data
+    data = []
+
+    # Iterate over instances
+    for reservation in instances:
+        for instance in reservation['Instances']:
+            instance_id = instance['InstanceId']
+            
+            # Get a list of volumes attached to the instance
+            volumes = instance.get('BlockDeviceMappings', [])
+            for volume in volumes:
+                volume_id = volume['Ebs']['VolumeId']
+                
+                # Get a list of snapshots for the volume
+                snapshots = ec2.describe_snapshots(Filters=[
+                    {
+                        'Name': 'volume-id',
+                        'Values': [volume_id]
+                    }
+                ])['Snapshots']
+                
+                for snapshot in snapshots:
+                    snapshot_id = snapshot['SnapshotId']
+                    data.append([instance_id, volume_id, snapshot_id])
+
+    # Create S3 client
+    s3 = boto3.client('s3')
+
+    # Define the S3 bucket and file name
+    bucket_name = 'amazon-connect-7714ca348632'
+    file_name = 'ec2-volumes-snapshots.csv'
+
+    # Write the data to a CSV file
+    try:
+        with open('/tmp/' + file_name, 'w', newline='') as csvfile:
+            writer = csv.writer(csvfile)
+            writer.writerow(['Instance ID', 'Volume ID', 'Snapshot ID'])
+            writer.writerows(data)
+        
+        # Upload the CSV file to S3
+        s3.upload_file('/tmp/' + file_name, bucket_name, file_name)
+        print(f"CSV file uploaded to s3://{bucket_name}/{file_name}")
+        return {
+            'statusCode': 200,
+            'body': f"CSV file uploaded to s3://{bucket_name}/{file_name}"
+        }
+    except ClientError as e:
+        print(f"Error uploading file to S3: {e}")
+        return {
+            'statusCode': 500,
+            'body': f"Error uploading file to S3: {e}"
+        }
+
