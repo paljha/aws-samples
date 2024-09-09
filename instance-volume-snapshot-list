@@ -38,7 +38,7 @@ def lambda_handler(event, context):
     s3 = boto3.client('s3')
 
     # Define the S3 bucket and file name
-    bucket_name = 'amazon-connect-7714ca348632'
+    bucket_name = 'bucket_name'
     file_name = 'ec2-volumes-snapshots.csv'
 
     # Write the data to a CSV file
