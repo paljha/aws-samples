@@ -1,0 +1,68 @@
+import boto3
+import csv
+from botocore.exceptions import ClientError
+
+# Create EC2 and S3 clients
+ec2 = boto3.client('ec2')
+s3 = boto3.client('s3')
+
+def lambda_handler(event, context):
+    # Define the S3 bucket and file name
+    bucket_name = 'XXXXXXXXXXXXXXXXX'
+    file_name = 'ec2-instances-volumes-snapshots.csv'
+
+    # Get a list of EC2 instances
+    instances = ec2.describe_instances()['Reservations']
+
+    # Create a list to store the data
+    data = []
+
+    # Iterate over instances
+    for reservation in instances:
+        for instance in reservation['Instances']:
+            instance_id = instance['InstanceId']
+            instance_name = instance.get('Tags', [])
+            instance_name = next((tag['Value'] for tag in instance_name if tag['Key'] == 'Name'), 'N/A')
+
+            # Get a list of volumes attached to the instance
+            volumes = instance.get('BlockDeviceMappings', [])
+            for volume in volumes:
+                volume_id = volume['Ebs']['VolumeId']
+
+                # Get a list of snapshots for the volume
+                snapshots = ec2.describe_snapshots(Filters=[
+                    {
+                        'Name': 'volume-id',
+                        'Values': [volume_id]
+                    }
+                ])['Snapshots']
+
+                snapshot_ids = [snapshot['SnapshotId'] for snapshot in snapshots]
+
+                # Append instance, volume, and snapshot details to the data list
+                data.append([instance_id, instance_name, volume_id, ', '.join(snapshot_ids)])
+
+    # Write the data to a CSV file
+    try:
+        with open('/tmp/' + file_name, 'w', newline='') as csvfile:
+            writer = csv.writer(csvfile)
+
+            # Write the header row
+
+            # Write the data rows
+            writer.writerows(data)
+
+        # Upload the CSV file to S3
+        s3.upload_file('/tmp/' + file_name, bucket_name, file_name)
+        print(f"CSV file uploaded to s3://{bucket_name}/{file_name}")
+        return {
+            'statusCode': 200,
+            'body': f"CSV file uploaded to s3://{bucket_name}/{file_name}"
+        }
+    except ClientError as e:
+        print(f"Error uploading file to S3: {e}")
+        return {
+            'statusCode': 500,
+            'body': f"Error uploading file to S3: {e}"
+        }
+
